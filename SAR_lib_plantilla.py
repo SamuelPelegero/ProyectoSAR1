@@ -9,7 +9,7 @@ from typing import Optional, List, Union, Dict
 import pickle
 import nltk
 from SAR_semantics import SentenceBertEmbeddingModel, BetoEmbeddingCLSModel, BetoEmbeddingModel, SpacyStaticModel
-## hola hola holaaaa
+
 
 
 ## UTILIZAR PARA LA AMPLIACION
@@ -20,8 +20,7 @@ SEMANTIC_MODEL = "SBERT"
 #SEMANTIC_MODEL = "Spacy"
 #SEMANTIC_MODEL = "Spacy_noSW_noA"
 
-def ejemplo():
-    return 
+
 
 def create_semantic_model(modelname):
     assert modelname in ("SBERT", "BetoCLS", "Beto", "Spacy", "Spacy_noSW_noA")

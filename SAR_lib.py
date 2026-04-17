@@ -513,6 +513,11 @@ class SAR_Indexer:
         NECESARIO PARA TODAS LAS VERSIONES
 
         """
+        term = term.lower()
+        listPostFull = self.index.get(term, [])
+        if self.positional:
+            return [p[0] for p in listPostFull]
+        return listPostFull
         ########################################
         ## COMPLETAR PARA TODAS LAS VERSIONES ##
         ########################################

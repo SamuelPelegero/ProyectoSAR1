@@ -617,9 +617,30 @@ class SAR_Indexer:
         return: posting list con los artid incluidos de p1 y no en p2
 
         """
-
+        res = []
+        i, j = 0, 0
+        while i < len(p1) and j < len(p2):
+            if p1[i] == p2[j]:
+                # Si son iguales, no lo añadimos (lo restamos) y avanzamos ambos
+                i += 1
+                j += 1
+            elif p1[i] < p2[j]:
+                # Si el de p1 es menor, significa que no existe en p2 (porque p2 está ordenado)
+                # Lo añadimos y avanzamos p1
+                res.append(p1[i])
+                i += 1
+            else:
+                # Si el de p1 es mayor, avanzamos p2 para intentar encontrarlo
+                j += 1
         
-        pass
+        # Al terminar el bucle, si quedan elementos en p1, todos ellos pertenecen al resultado
+        # porque ya no hay nada más en p2 que los pueda "restar".
+        while i < len(p1):
+            res.append(p1[i])
+            i += 1
+            
+        return res
+        
         ########################################################
         ## COMPLETAR PARA TODAS LAS VERSIONES SI ES NECESARIO ##
         ########################################################

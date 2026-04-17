@@ -261,11 +261,29 @@ class SAR_Indexer:
         """
         
         self.load_semantic_model()
-        # COMPLETAR
-        # 1
-        # 2
-        # 3
-        # 4
+        top_k = self.MAX_EMBEDDINGS
+        totalchunks = len(self.chuncks)
+        artbus = set(articles)
+        artord = []
+        while True:
+            dist, ids = self.model.query(query, top_k)
+            encontrados = []
+            for i in ids:
+                aid = self.chunck_index[i]
+                if aid in artbus and aid not in encontrados:
+                    encontrados.append(aid)
+            if len(encontrados) < len(articles) and top_k < totalchunks:
+                top_k = min(top_k + self.MAX_EMBEDDINGS, totalchunks)
+                continue
+
+            artord = encontrados
+            break
+
+        for aid in articles:
+            if aid not in artord:
+                artord.append(aid)
+                
+        return artord
     
 
     ###############################
@@ -521,7 +539,6 @@ class SAR_Indexer:
         ########################################
         ## COMPLETAR PARA TODAS LAS VERSIONES ##
         ########################################
-        pass
 
 
 

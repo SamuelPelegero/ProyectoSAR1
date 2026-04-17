@@ -70,6 +70,9 @@ class SAR_Indexer:
         self.tokenizer = re.compile(r"\W+") # expresion regular para hacer la tokenizacion
         self.show_all = False # valor por defecto, se cambia con self.set_showall()
 
+        self.docid_counter = 0 # Para asignar IDs a los ficheros .json
+        self.artid_counter = 0 # Para asignar IDs a cada artículo de la Wikipedia
+
         # PARA LA AMPLIACION
         self.semantic = None
         self.chuncks = []
@@ -359,20 +362,56 @@ class SAR_Indexer:
         dependiendo del valor de self.positional se debe ampliar el indexado
 
         """
+        # 1. Registrar el fichero en el diccionario de documentos
+        # Usamos el contador docid_counter para darle un ID único a este archivo
+        current_docid = self.docid_counter
+        self.docs[current_docid] = filename
+        self.docid_counter += 1
 
+        # 2. Abrir el fichero y leer línea a línea
         for i, line in enumerate(open(filename)):
+           
             j = self.parse_article(line)
+            if j is None:
+                continue
+
+            # 3. Control de duplicados por URL
+            url = j.get('url')
+            if url in self.urls:
+                continue
+            self.urls.add(url)
+
+            # 4. Asignar ID al artículo y guardar su información de localización
+            # Guardamos la info necesaria para que SAR_Searcher sepa dónde leer
+            art_id = self.artid_counter
+            self.articles[art_id] = {
+                'docid': current_docid, # En qué fichero está
+                'line': i,              # En qué línea del fichero
+                'title': j.get('title') # Título para mostrar en resultados
+            }
+            self.artid_counter += 1
+
+            # 5. Obtener el texto del campo por defecto (usualmente 'all')
+            texto = j.get(self.DEFAULT_FIELD, "")
+
+            # 6. Tokenización: minúsculas -> regex -> filtrar vacíos
+            # self.tokenizer ya lo tienes como re.compile(r"\W+")
+            terminos = self.tokenize(texto)
+            
+            # 7. Indexado en el índice invertido
+            # Usamos set() para que si una palabra sale 10 veces, 
+            # solo anotemos una vez que este artículo la contiene.
+            terminos_unicos = set(t for t in terminos if t) 
+
+            for term in terminos_unicos:
+                if term not in self.index:
+                    self.index[term] = []
+                
+                # Al añadir art_id secuencialmente, la lista de cada término
+                # queda ordenada automáticamente de menor a mayor.
+                self.index[term].append(art_id)
 
 
-        #
-        # 
-        # Solo se debe indexar el contenido self.DEFAULT_FIELD
-        #
-        #
-        #
-        #################
-        ### COMPLETAR ###
-        #################
 
 
     def tokenize(self, text:str):

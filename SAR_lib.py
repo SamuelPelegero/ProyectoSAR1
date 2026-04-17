@@ -413,8 +413,6 @@ class SAR_Indexer:
                 self.index[term].append(art_id)
 
 
-
-
     def tokenize(self, text:str):
         """
         NECESARIO PARA TODAS LAS VERSIONES
@@ -439,6 +437,22 @@ class SAR_Indexer:
         Muestra estadisticas de los indices
 
         """
+
+        print("-" * 30)
+        print("ESTADÍSTICAS DEL ÍNDICE")
+        print("-" * 30)
+        print(f"Ficheros procesados: {len(self.docs)}")
+        print(f"Artículos indexados: {self.artid_counter}")
+        print(f"Palabras únicas: {len(self.index)}")
+        
+        # Vamos a imprimir solo 10 palabras para ver que el formato es correcto
+        print("\nMuestra del índice (Primeras 10 palabras):")
+        for i, (termino, posting) in enumerate(self.index.items()):
+            if i < 10:
+                print(f"  '{termino}': {posting}")
+            else:
+                break
+        print("-" * 30)
         pass
         ########################################
         ## COMPLETAR PARA TODAS LAS VERSIONES ##

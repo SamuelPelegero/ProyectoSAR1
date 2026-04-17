@@ -201,10 +201,11 @@ class SAR_Indexer:
         """
 
         #1 - completar
-
+        frases = nltk.sent_tokenize(txt)
         #2 - completar
-
-        pass             
+        for f in frases:
+            self.chunks.append(f)
+            self.chunck_index.append(artid)   
         
 
     def create_kdtree(self):
@@ -218,7 +219,7 @@ class SAR_Indexer:
         
         """
         print(f"Creating kdtree ...", end="")
-	    # completar
+        self.model.fit(self.chunks)
         print("done!")
 
 
@@ -538,8 +539,17 @@ class SAR_Indexer:
         return: posting list con todos los artid exceptos los contenidos en p
 
         """
-        
-        pass
+        notTotal = sorted(self.articles.keys())
+        res = []
+        i,j = 0,0
+        while i < len(notTotal):
+            if j < len(p) and notTotal[i] == p[j]:
+                i += 1
+                j += 1
+            else:
+                res.append(notTotal[i]) 
+                i += 1
+        return res
         ########################################
         ## COMPLETAR PARA TODAS LAS VERSIONES ##
         ########################################
@@ -558,8 +568,17 @@ class SAR_Indexer:
         return: posting list con los artid incluidos en p1 y p2
 
         """
-        
-        pass
+        res = []
+        i,j = 0,0
+        while i < len(p1) and j < len(p2):
+            if p1[i] == p2[j]:
+                res.append(p1[i])
+                i += 1
+                j += 1
+            elif p1[i] < p2[j]:
+                i += 1
+            else: j += 1
+        return res
         ########################################
         ## COMPLETAR PARA TODAS LAS VERSIONES ##
         ########################################

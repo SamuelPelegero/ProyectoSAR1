@@ -1,4 +1,6 @@
-madrid	7
-mexicano	1
-goleador	2
-madrid NOT mexicano	6
+serie	14
+televisión	9
+serie televisión	5
+serie NOT televisión	9
+distribuidora NOT televisión	1
+contador marzo	2

@@ -563,10 +563,8 @@ class SAR_Indexer:
 
         """
         term = term.lower()
-        listPostFull = self.index.get(term, [])
-        if self.positional:
-            return [p[0] for p in listPostFull]
-        return listPostFull
+        # Simplemente devolvemos la lista que hay en el diccionario
+        return self.index.get(term, [])
         ########################################
         ## COMPLETAR PARA TODAS LAS VERSIONES ##
         ########################################

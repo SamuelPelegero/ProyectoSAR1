@@ -240,11 +240,29 @@ class SAR_Indexer:
         
         # COMPLETAR
 
-        # 1
-        # 2
-        # 3
-        # 4
+        top_k = self.MAX_EMBEDDINGS
+        total_chunks = len(self.chuncks)
+        #1,2
+        while True:
+            dists, idcs = self.model.query(query, top_k)
+            
+            # 3
+            if self.semantic_threshold is not None and dists[-1] <= self.semantic_threshold:
+                # 4
+                if top_k < total_chunks:
+                    top_k = min(top_k + self.MAX_EMBEDDINGS, total_chunks)
+                    continue 
+            break 
+
         # 5
+        results = []
+        for d, idc in zip(dists, idcs):
+            if self.semantic_threshold is None or d <= self.semantic_threshold:
+                artid = self.chunck_index[idc] 
+                if artid not in results:
+                    results.append(artid)
+                    
+        return results
 
 
     def semantic_reranking(self, query:str, articles: List[int]):

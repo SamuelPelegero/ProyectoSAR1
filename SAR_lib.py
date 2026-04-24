@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional, List, Union, Dict
 import pickle
 import nltk
-from SAR_semantics import SentenceBertEmbeddingModel, BetoEmbeddingCLSModel, BetoEmbeddingModel, SpacyStaticModel
+#from SAR_semantics import SentenceBertEmbeddingModel, BetoEmbeddingCLSModel, BetoEmbeddingModel, SpacyStaticModel
 
 
 
@@ -491,24 +491,55 @@ class SAR_Indexer:
     ###################################
 
 
-    def solve_query(self, query:str, prev:Dict={}):
+    def solve_query(self, query: str, prev: dict = {}):
         """
-        NECESARIO PARA TODAS LAS VERSIONES
-
-        Resuelve una query.
-        Debe realizar el parsing de consulta que sera mas o menos complicado en funcion de la ampliacion que se implementen
-
-
-        param:  "query": cadena con la query
-                "prev": incluido por si se quiere hacer una version recursiva. No es necesario utilizarlo.
-
-
-        return: posting list con el resultado de la query
-
+        Resuelve una query evaluando de izquierda a derecha.
+        Soporta términos simples y el operador NOT.
         """
-        
-        if query is None or len(query) == 0:
-            return []
+        if query is None or len(query.strip()) == 0:
+            return [], None
+
+        # 1. Tokenizar la consulta
+        tokens = query.split()
+        res = []
+        i = 0
+
+        # 2. Obtener la primera posting list (gestionando si empieza por NOT)
+        try:
+            if tokens[0].upper() == "NOT":
+                # Caso: "NOT term1 ..." -> Invertimos la posting de term1
+                if len(tokens) > 1:
+                    res = self.reverse_posting(self.get_posting(tokens[1]))
+                    i = 2
+                else:
+                    return [], None
+            else:
+                # Caso estándar: "term1 ..."
+                res = self.get_posting(tokens[0])
+                i = 1
+
+            # 3. Procesar el resto de términos de izquierda a derecha
+            while i < len(tokens):
+                if tokens[i].upper() == "NOT":
+                    # Si encontramos NOT, el siguiente término se resta (AND NOT)
+                    if i + 1 < len(tokens):
+                        next_p = self.get_posting(tokens[i + 1])
+                        res = self.minus_posting(res, next_p)
+                        i += 2
+                    else:
+                        i += 1 # NOT al final de la línea, lo ignoramos
+                else:
+                    # Si no hay NOT, es un AND implícito
+                    next_p = self.get_posting(tokens[i])
+                    res = self.and_posting(res, next_p)
+                    i += 1
+
+        except Exception as e:
+            # En caso de error inesperado, devolvemos lista vacía para no romper el programa
+            return [], None
+
+        # Muy importante: devolver una tupla (resultado, metadata)
+        return res, None
 
         ########################################
         ## COMPLETAR PARA TODAS LAS VERSIONES ##
@@ -711,18 +742,24 @@ class SAR_Indexer:
         return not errors
 
 
-    def solve_and_show(self, query:str):
-        """
-        NECESARIO PARA TODAS LAS VERSIONES
+    def solve_and_show(self, query: str):
+        # 1. Resolver la query
+        posts, _ = self.solve_query(query)
+        num_results = len(posts)
 
-        Resuelve una consulta y la muestra junto al numero de resultados
+        print(f"Query: '{query}'")
+        print(f"Number of results: {num_results}")
 
-        param:  "query": query que se debe resolver.
+        # 2. Determinar cuántos resultados mostrar
+        res_to_show = posts if self.show_all else posts[:self.SHOW_MAX]
 
-        return: el numero de artículo recuperadas, para la opcion -T
-
-        """
-        pass
+        # 3. Mostrar la información de cada artículo
+        for i, art_id in enumerate(res_to_show, 1):
+            info = self.articles[art_id]
+            # Suponiendo que guardaste 'title' y 'url' en self.articles durante la indexación
+            print(f"[{i}] ({art_id}) {info.get('title', 'No Title')}")
+        
+        print("-" * 20)
         ################
         ## COMPLETAR  ##
         ################

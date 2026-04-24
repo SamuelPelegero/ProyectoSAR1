@@ -1,0 +1,4 @@
+madrid	7
+mexicano	1
+goleador	2
+madrid NOT mexicano	6

@@ -387,26 +387,17 @@ class SAR_Indexer:
 
     def index_file(self, filename:str):
         """
-
         Indexa el contenido de un fichero.
-
-        input: "filename" es el nombre de un fichero generado por el Crawler cada línea es un objeto json
-            con la información de un artículo de la Wikipedia
-
-        NECESARIO PARA TODAS LAS VERSIONES
-
-        dependiendo del valor de self.positional se debe ampliar el indexado
-
+        Soporta indexación normal y posicional según self.positional.
         """
         # 1. Registrar el fichero en el diccionario de documentos
-        # Usamos el contador docid_counter para darle un ID único a este archivo
         current_docid = self.docid_counter
         self.docs[current_docid] = filename
         self.docid_counter += 1
 
-        # 2. Abrir el fichero y leer línea a línea
-        for i, line in enumerate(open(filename)):
-           
+        # 2. Abrir el fichero y leer línea a línea (usando utf-8 por seguridad)
+        for i, line in enumerate(open(filename, encoding='utf-8')):
+            
             j = self.parse_article(line)
             if j is None:
                 continue
@@ -417,37 +408,49 @@ class SAR_Indexer:
                 continue
             self.urls.add(url)
 
-            # 4. Asignar ID al artículo y guardar su información de localización
-            # Guardamos la info necesaria para que SAR_Searcher sepa dónde leer
+            # 4. Asignar ID al artículo y guardar info de localización
             art_id = self.artid_counter
             self.articles[art_id] = {
-                'docid': current_docid, # En qué fichero está
-                'line': i,              # En qué línea del fichero
-                'title': j.get('title') # Título para mostrar en resultados
+                'docid': current_docid, 
+                'line': i,              
+                'title': j.get('title') 
             }
             self.artid_counter += 1
 
-            # 5. Obtener el texto del campo por defecto (usualmente 'all')
+            # 5. Obtener el texto del campo por defecto
             texto = j.get(self.DEFAULT_FIELD, "")
 
-            # 6. Tokenización: minúsculas -> regex -> filtrar vacíos
-            # self.tokenizer ya lo tienes como re.compile(r"\W+")
+            # 6. Tokenización
             terminos = self.tokenize(texto)
 
-            
             # 7. Indexado en el índice invertido
-            # Usamos set() para que si una palabra sale 10 veces, 
-            # solo anotemos una vez que este artículo la contiene.
-            terminos_unicos = set(t for t in terminos if t) 
+            if getattr(self, 'positional', False):
+                # --- VERSIÓN POSICIONAL ---
+                # Estructura: {termino: [[art_id, [pos1, pos2]], [art_id2, [pos3]]]}
+                for idx, term in enumerate(terminos):
+                    if not term: continue
+                    
+                    if term not in self.index:
+                        self.index[term] = []
+                    
+                    # Comprobamos si el último artículo añadido para este término es el actual
+                    # Si la lista está vacía o el ID es distinto, creamos nueva entrada de artículo
+                    if not self.index[term] or self.index[term][-1][0] != art_id:
+                        self.index[term].append([art_id, [idx]])
+                    else:
+                        # Si ya estamos en el artículo actual, añadimos la posición a su lista
+                        self.index[term][-1][1].append(idx)
+            else:
+                # --- VERSIÓN NO POSICIONAL (Mínima) ---
+                # Estructura: {termino: [art_id1, art_id2, ...]}
+                terminos_unicos = set(t for t in terminos if t) 
 
-            for term in terminos_unicos:
-                if term not in self.index:
-                    self.index[term] = []
-                
-                # Al añadir art_id secuencialmente, la lista de cada término
-                # queda ordenada automáticamente de menor a mayor.
-                self.index[term].append(art_id)
-
+                for term in terminos_unicos:
+                    if term not in self.index:
+                        self.index[term] = []
+                    
+                    # Como procesamos artículos en orden, art_id siempre es mayor que el anterior
+                    self.index[term].append(art_id)
 
     def tokenize(self, text:str):
         """
@@ -581,7 +584,6 @@ class SAR_Indexer:
 
         """
         term = term.lower()
-        # Simplemente devolvemos la lista que hay en el diccionario
         return self.index.get(term, [])
         ########################################
         ## COMPLETAR PARA TODAS LAS VERSIONES ##
@@ -777,7 +779,7 @@ class SAR_Indexer:
         
         print("-" * 20)
         ################
-        ## COMPLETAR  ##
+        ## COMPLETA  ##
         ################
 
 

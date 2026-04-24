@@ -2,5 +2,5 @@ serie	14
 televisión	9
 serie televisión	5
 serie NOT televisión	9
-distribuidora NOT televisión	1
-contador marzo	2
+distribuidora NOT televisión	0
+contador marzo	3

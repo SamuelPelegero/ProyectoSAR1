@@ -598,10 +598,49 @@ class SAR_Indexer:
 
         """
 
-        #################################
-        ## COMPLETAR PARA POSICIONALES ##
-        #################################
-        pass
+        # 1. Tokenizamos la frase (ej: "real madrid")
+        tokens = self.tokenize(terms)
+        if not tokens:
+            return []
+
+        # 2. Obtenemos las postings completas (con posiciones)
+        postings_con_pos = [self.index.get(t, []) for t in tokens]
+        
+        # Si alguna palabra no existe, la frase no existe
+        if any(not p for p in postings_con_pos):
+            return []
+
+        # 3. Intersección inicial de IDs (Filtro rápido usando and_posting)
+        # Extraemos solo los IDs para ver en qué artículos coinciden todas las palabras
+        common_artids = [x[0] for x in postings_con_pos[0]]
+        for p in postings_con_pos[1:]:
+            ids_actuales = [x[0] for x in p]
+            common_artids = self.and_posting(common_artids, ids_actuales)
+        
+        res = []
+        # 4. Comprobación de proximidad para cada artículo común
+        for aid in common_artids:
+            # Extraemos las listas de posiciones de cada palabra para este aid
+            pos_por_palabra = []
+            for p_list in postings_con_pos:
+                for entry in p_list:
+                    if entry[0] == aid:
+                        pos_por_palabra.append(entry[1])
+                        break
+            
+            # 5. Algoritmo de consecutividad
+            # Miramos si para alguna posición de la primera palabra, las siguientes están a +1, +2...
+            for start_pos in pos_por_palabra[0]:
+                es_frase = True
+                for offset in range(1, len(pos_por_palabra)):
+                    if (start_pos + offset) not in pos_por_palabra[offset]:
+                        es_frase = False
+                        break
+                if es_frase:
+                    res.append(aid)
+                    break # Basta con encontrar la frase una vez en el artículo
+        
+        return res
 
 
 

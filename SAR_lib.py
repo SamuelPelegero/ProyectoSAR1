@@ -513,54 +513,49 @@ class SAR_Indexer:
 
 
     def solve_query(self, query: str, prev: dict = {}):
-        """
-        Resuelve una query evaluando de izquierda a derecha.
-        Soporta términos simples y el operador NOT.
-        """
-        if query is None or len(query.strip()) == 0:
+        if not query:
             return [], None
 
-        # 1. Tokenizar la consulta
         tokens = query.split()
         res = []
         i = 0
 
-        # 2. Obtener la primera posting list (gestionando si empieza por NOT)
-        try:
-            if tokens[0].upper() == "NOT":
-                # Caso: "NOT term1 ..." -> Invertimos la posting de term1
-                if len(tokens) > 1:
-                    res = self.reverse_posting(self.get_posting(tokens[1]))
-                    i = 2
-                else:
-                    return [], None
+        # 1. Primer término
+        if tokens[0].upper() == "NOT":
+            res = self.reverse_posting(self.get_posting(tokens[1]))
+            i = 2
+        else:
+            res = self.get_posting(tokens[0])
+            i = 1
+
+        # 2. Resto de la query
+        while i < len(tokens):
+            token_upper = tokens[i].upper()
+            
+            if token_upper == "AND":
+                next_p = self.get_posting(tokens[i+1])
+                res = self.and_posting(res, next_p)
+                i += 2
+            elif token_upper == "OR":
+                # Si implementas or_posting
+                # next_p = self.get_posting(tokens[i+1])
+                # res = self.or_posting(res, next_p)
+                i += 2
+            elif token_upper == "NOT":
+                # Esto es un AND NOT
+                next_p = self.get_posting(tokens[i+1])
+                res = self.minus_posting(res, next_p)
+                i += 2
             else:
-                # Caso estándar: "term1 ..."
-                res = self.get_posting(tokens[0])
-                i = 1
-
-            # 3. Procesar el resto de términos de izquierda a derecha
-            while i < len(tokens):
-                if tokens[i].upper() == "NOT":
-                    # Si encontramos NOT, el siguiente término se resta (AND NOT)
-                    if i + 1 < len(tokens):
-                        next_p = self.get_posting(tokens[i + 1])
-                        res = self.minus_posting(res, next_p)
-                        i += 2
-                    else:
-                        i += 1 # NOT al final de la línea, lo ignoramos
-                else:
-                    # Si no hay NOT, es un AND implícito
-                    next_p = self.get_posting(tokens[i])
-                    res = self.and_posting(res, next_p)
-                    i += 1
-
-        except Exception as e:
-            # En caso de error inesperado, devolvemos lista vacía para no romper el programa
-            return [], None
-
-        # Muy importante: devolver una tupla (resultado, metadata)
-        return res, None
+                # AND implícito (caso: ronald melzer)
+                next_p = self.get_posting(tokens[i])
+                res = self.and_posting(res, next_p)
+                i += 1
+        
+        # Limpieza final: para que SAR_Searcher no reciba [[id, [pos]], ...]
+        # convertimos todo a lista de IDs puros
+        final_res = [x[0] if isinstance(x, list) else x for x in res]
+        return final_res, None
 
         ########################################
         ## COMPLETAR PARA TODAS LAS VERSIONES ##
@@ -627,12 +622,22 @@ class SAR_Indexer:
         
         notTotal = sorted(self.articles.keys())
         res = []
-        i,j = 0,0
+        i, j = 0, 0
+        
         while i < len(notTotal):
-            if j < len(p) and notTotal[i] == p[j]:
+            # Extraemos el ID de p si es posicional
+            val_p = -1 # Valor por defecto si j está fuera de rango
+            if j < len(p):
+                val_p = p[j][0] if self.positional else p[j]
+
+            if j < len(p) and notTotal[i] == val_p:
+                # Si el artículo total está en la lista p, lo ignoramos (NOT)
                 i += 1
                 j += 1
             else:
+                # Si no está en p, lo añadimos al resultado
+                # Nota: El resultado de un NOT siempre es una lista de IDs (sin posiciones)
+                # porque los artículos que NO tenían la palabra no tienen posiciones que guardar
                 res.append(notTotal[i]) 
                 i += 1
         return res
@@ -656,15 +661,20 @@ class SAR_Indexer:
         """
         
         res = []
-        i,j = 0,0
+        i, j = 0, 0
         while i < len(p1) and j < len(p2):
-            if p1[i] == p2[j]:
-                res.append(p1[i])
+            # Si es posicional, comparamos p1[i][0], si no, p1[i]
+            val1 = p1[i][0] if isinstance(p1[i], list) else p1[i]
+            val2 = p2[j][0] if isinstance(p2[j], list) else p2[j]
+
+            if val1 == val2:
+                res.append(val1) # Guardamos solo el ID para el resultado booleano
                 i += 1
                 j += 1
-            elif p1[i] < p2[j]:
+            elif val1 < val2:
                 i += 1
-            else: j += 1
+            else:
+                j += 1
         return res
         ########################################
         ## COMPLETAR PARA TODAS LAS VERSIONES ##
@@ -691,21 +701,24 @@ class SAR_Indexer:
         res = []
         i, j = 0, 0
         while i < len(p1) and j < len(p2):
-            if p1[i] == p2[j]:
-                # Si son iguales, no lo añadimos (lo restamos) y avanzamos ambos
+            # Extraemos los IDs según el tipo de índice
+            val1 = p1[i][0] if isinstance(p1[i], list) else p1[i]
+            val2 = p2[j][0] if isinstance(p2[j], list) else p2[j]
+
+            if val1 == val2:
+                # Si está en ambos, se resta: no se añade y avanzamos ambos
                 i += 1
                 j += 1
-            elif p1[i] < p2[j]:
-                # Si el de p1 es menor, significa que no existe en p2 (porque p2 está ordenado)
-                # Lo añadimos y avanzamos p1
+            elif val1 < val2:
+                # Si val1 es menor, no puede estar en p2 (están ordenadas)
+                # IMPORTANTE: Añadimos el elemento original (con posiciones si las hay)
                 res.append(p1[i])
                 i += 1
             else:
-                # Si el de p1 es mayor, avanzamos p2 para intentar encontrarlo
+                # val1 es mayor, avanzamos p2 para buscarlo más adelante
                 j += 1
         
-        # Al terminar el bucle, si quedan elementos en p1, todos ellos pertenecen al resultado
-        # porque ya no hay nada más en p2 que los pueda "restar".
+        # Añadimos el resto de elementos de p1 que no han sido restados
         while i < len(p1):
             res.append(p1[i])
             i += 1

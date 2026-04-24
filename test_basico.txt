@@ -1,6 +1,7 @@
-serie	14
-televisión	9
-serie televisión	5
-serie NOT televisión	9
-distribuidora NOT televisión	0
-contador marzo	3
+ronald	2
+montevideo	1
+ronald melzer	1
+ronald NOT ronny	1
+ronny NOT melzer	1
+montevideo ronald	1
+montevideo NOT ronald	0

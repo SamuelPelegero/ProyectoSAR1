@@ -1,0 +1,8 @@
+"estados unidos"	12
+"club de fútbol"	3
+"parque de la ciudadela"	1
+"fernando de magallanes"	1
+"cine uruguayo"	1
+"tom holland"	1
+"premio martín fierro"	1
+"fútbol club barcelona"	2

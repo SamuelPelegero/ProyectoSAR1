@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional, List, Union, Dict
 import pickle
 import nltk
-#from SAR_semantics import SentenceBertEmbeddingModel, BetoEmbeddingCLSModel, BetoEmbeddingModel, SpacyStaticModel
+from SAR_semantics import SentenceBertEmbeddingModel, BetoEmbeddingCLSModel, BetoEmbeddingModel, SpacyStaticModel
 
 
 
@@ -28,7 +28,7 @@ def create_semantic_model(modelname):
     if modelname == "SBERT": return SentenceBertEmbeddingModel()    
     elif modelname == "BetoCLS": return BetoEmbeddingCLSModel()
     elif modelname == "Beto": return BetoEmbeddingModel()
-    elif modelname == "Spacy": SpacyStaticModel(remove_stopwords=False, remove_noalpha=False)
+    elif modelname == "Spacy": return SpacyStaticModel(remove_stopwords=False, remove_noalpha=False)
     return SpacyStaticModel()
 
 
@@ -63,6 +63,7 @@ class SAR_Indexer:
         	puedes añadir más variables si las necesitas. 
 
         """
+        self.positional = False
         self.urls = set() # hash para las urls procesadas,
         self.index = {} # hash para el indice invertido de terminos --> clave: termino, valor: posting list
         self.docs = {} # diccionario de terminos --> clave: entero(docid),  valor: ruta del fichero.
@@ -161,12 +162,17 @@ class SAR_Indexer:
         Carga la información del índice desde un fichero en formato binario
 
         """
+
         #info = [self.all_atribs] + [getattr(self, atr) for atr in self.all_atribs]
         with open(filename, 'rb') as fh:
             info = pickle.load(fh)
         atrs = info[0]
         for name, val in zip(atrs, info[1:]):
             setattr(self, name, val)
+        
+        if self.kdtree is not None:
+            self.load_semantic_model()
+            self.model.kdtree = self.kdtree
 
 
     ###############################
@@ -203,9 +209,12 @@ class SAR_Indexer:
         #1 - completar
         frases = nltk.sent_tokenize(txt)
         #2 - completar
+        inicio = len(self.chuncks)
         for f in frases:
-            self.chunks.append(f)
+            self.chuncks.append(f)
             self.chunck_index.append(artid)
+        
+        self.artid_to_emb[artid] = (inicio, len(self.chuncks))
 
     def create_kdtree(self):
         """
@@ -218,7 +227,8 @@ class SAR_Indexer:
         
         """
         print(f"Creating kdtree ...", end="")
-        self.model.fit(self.chunks)
+        self.model.fit(self.chuncks)
+        self.kdtree = self.model.kdtree
         print("done!")
 
 
@@ -237,26 +247,29 @@ class SAR_Indexer:
         """
 
         self.load_semantic_model()
-        
-        # COMPLETAR
-
         top_k = self.MAX_EMBEDDINGS
         total_chunks = len(self.chuncks)
-        #1,2
-        while True:
-            dists, idcs = self.model.query(query, top_k)
-            
-            # 3
-            if self.semantic_threshold is not None and dists[-1] <= self.semantic_threshold:
-                # 4
-                if top_k < total_chunks:
-                    top_k = min(top_k + self.MAX_EMBEDDINGS, total_chunks)
-                    continue 
-            break 
 
-        # 5
+        while True:
+            top_k = min(top_k, total_chunks)
+            # CAMBIO: Recibimos una sola variable 'res' (lista de tuplas)
+            res = self.model.query(query, top_k)
+            
+            if not res: break
+
+            # Accedemos a la última tupla para la condición de salida
+            last_dist = res[-1][0] # res[-1] es (distancia, indice)
+
+            if (self.semantic_threshold is not None
+                    and last_dist <= self.semantic_threshold
+                    and top_k < total_chunks):
+                top_k = min(top_k + self.MAX_EMBEDDINGS, total_chunks)
+                continue
+            break
+
         results = []
-        for d, idc in zip(dists, idcs):
+        # CAMBIO: Iteramos sobre las tuplas (distancia, indice)
+        for d, idc in res:
             if self.semantic_threshold is None or d <= self.semantic_threshold:
                 artid = self.chunck_index[idc] 
                 if artid not in results:
@@ -280,28 +293,33 @@ class SAR_Indexer:
         
         self.load_semantic_model()
         top_k = self.MAX_EMBEDDINGS
-        totalchunks = len(self.chuncks)
-        artbus = set(articles)
-        artord = []
+        total_chunks = len(self.chuncks)
+        art_set = set(articles)
+        
         while True:
-            dist, ids = self.model.query(query, top_k)
-            encontrados = []
-            for i in ids:
-                aid = self.chunck_index[i]
-                if aid in artbus and aid not in encontrados:
-                    encontrados.append(aid)
-            if len(encontrados) < len(articles) and top_k < totalchunks:
-                top_k = min(top_k + self.MAX_EMBEDDINGS, totalchunks)
-                continue
-
-            artord = encontrados
-            break
-
-        for aid in articles:
-            if aid not in artord:
-                artord.append(aid)
+            top_k = min(top_k, total_chunks)
+            # CAMBIO: Aquí estaba el ValueError. Recibe solo 'res'.
+            res = self.model.query(query, top_k)
+            
+            # Extraemos los art_id únicos que están en la lista original
+            reranked = []
+            for _, idc in res: # Solo nos interesa el índice (idc)
+                aid = self.chunck_index[idc]
+                if aid in art_set and aid not in reranked:
+                    reranked.append(aid)
+            
+            # Si ya encontramos todos los artículos o no hay más chunks, paramos
+            if len(reranked) >= len(articles) or top_k >= total_chunks:
+                break
                 
-        return artord
+            top_k = min(top_k + self.MAX_EMBEDDINGS, total_chunks)
+
+        # Añadir al final los que falten (por seguridad)
+        for aid in articles:
+            if aid not in reranked:
+                reranked.append(aid)
+
+        return reranked
     
 
     ###############################
@@ -354,9 +372,10 @@ class SAR_Indexer:
             print(f"ERROR:{root} is not a file nor directory!", file=sys.stderr)
             sys.exit(-1)
 
-        #####################################################
-        ## COMPLETAR SI ES NECESARIO FUNCIONALIDADES EXTRA ##
-        #####################################################
+        if self.semantic:
+            self.create_kdtree()
+
+
         
         
     def parse_article(self, raw_line:str) -> Dict[str, str]:
@@ -413,7 +432,8 @@ class SAR_Indexer:
             self.articles[art_id] = {
                 'docid': current_docid, 
                 'line': i,              
-                'title': j.get('title') 
+                'title': j.get('title'),
+                'url': j.get('url') 
             }
             self.artid_counter += 1
 
@@ -424,33 +444,32 @@ class SAR_Indexer:
             terminos = self.tokenize(texto)
 
             # 7. Indexado en el índice invertido
-            if getattr(self, 'positional', False):
+            if self.positional:
                 # --- VERSIÓN POSICIONAL ---
-                # Estructura: {termino: [[art_id, [pos1, pos2]], [art_id2, [pos3]]]}
+                # Estructura: {termino: [[art_id, [pos1, pos2, ...]], [art_id2, [pos3, ...]], ...]}
                 for idx, term in enumerate(terminos):
-                    if not term: continue
-                    
+                    if not term:
+                        continue
                     if term not in self.index:
                         self.index[term] = []
-                    
-                    # Comprobamos si el último artículo añadido para este término es el actual
-                    # Si la lista está vacía o el ID es distinto, creamos nueva entrada de artículo
-                    if not self.index[term] or self.index[term][-1][0] != art_id:
-                        self.index[term].append([art_id, [idx]])
-                    else:
-                        # Si ya estamos en el artículo actual, añadimos la posición a su lista
+                    # Si el último artículo añadido para este término ya es el actual, añadimos la posición
+                    if self.index[term] and self.index[term][-1][0] == art_id:
                         self.index[term][-1][1].append(idx)
+                    else:
+                        # Nuevo artículo para este término
+                        self.index[term].append([art_id, [idx]])
             else:
                 # --- VERSIÓN NO POSICIONAL (Mínima) ---
                 # Estructura: {termino: [art_id1, art_id2, ...]}
-                terminos_unicos = set(t for t in terminos if t) 
-
+                terminos_unicos = set(t for t in terminos if t)
                 for term in terminos_unicos:
                     if term not in self.index:
                         self.index[term] = []
-                    
-                    # Como procesamos artículos en orden, art_id siempre es mayor que el anterior
-                    self.index[term].append(art_id)
+                    # art_id es siempre mayor que el anterior (orden secuencial)
+                    self.index[term].append(art_id) 
+
+            if self.semantic:
+                self.update_chuncks(texto, art_id)
 
     def tokenize(self, text:str):
         """
@@ -480,19 +499,15 @@ class SAR_Indexer:
         print("-" * 30)
         print("ESTADÍSTICAS DEL ÍNDICE")
         print("-" * 30)
-        print(f"Ficheros procesados: {len(self.docs)}")
-        print(f"Artículos indexados: {self.artid_counter}")
-        print(f"Palabras únicas: {len(self.index)}")
-        
-        # Vamos a imprimir solo 10 palabras para ver que el formato es correcto
-        print("\nMuestra del índice (Primeras 10 palabras):")
-        for i, (termino, posting) in enumerate(self.index.items()):
-            if i < 10:
-                print(f"  '{termino}': {posting}")
-            else:
-                break
-        print("-" * 30)
-        pass
+        print(f"  Ficheros (docs) procesados : {len(self.docs)}")
+        print(f"  Artículos indexados        : {self.artid_counter}")
+        print(f"  Términos únicos en índice  : {len(self.index)}")
+        print(f"  Índice posicional          : {self.positional}")
+        print(f"  Índice semántico           : {bool(self.semantic)}")
+        if self.semantic:
+            print(f"  Chunks semánticos          : {len(self.chuncks)}")
+        print("=" * 40)
+       
         ########################################
         ## COMPLETAR PARA TODAS LAS VERSIONES ##
         ########################################
@@ -516,50 +531,89 @@ class SAR_Indexer:
         if not query:
             return [], None
 
-        tokens = query.split()
+        if self.semantic_threshold is not None and not self.semantic_ranking:
+            results = self.solve_semantic_query(query)
+            return results, None
+ 
+        # --- PARSEO DE LA QUERY ---
+        # Dividimos la query en tokens respetando las frases entre comillas
+        # Ejemplo: 'python "fin de semana" NOT curso' ->
+        #   tokens = ['python', '"fin de semana"', 'NOT', 'curso']
+        tokens = self._parse_query_tokens(query)
+ 
+        if not tokens:
+            return [], None
+ 
         res = []
         i = 0
-
-        # 1. Primer término
+ 
+        # --- PRIMER TOKEN ---
         if tokens[0].upper() == "NOT":
-            res = self.reverse_posting(self.get_posting(tokens[1]))
+            # NOT al inicio: complemento de la posting del siguiente término/frase
+            next_posting = self._get_posting_for_token(tokens[1])
+            res = self.reverse_posting(next_posting)
             i = 2
         else:
-            res = self.get_posting(tokens[0])
+            res = self._get_posting_for_token(tokens[0])
             i = 1
-
-        # 2. Resto de la query
+ 
+        # --- RESTO DE TOKENS ---
         while i < len(tokens):
             token_upper = tokens[i].upper()
-            
-            if token_upper == "AND":
-                next_p = self.get_posting(tokens[i+1])
-                res = self.and_posting(res, next_p)
-                i += 2
-            elif token_upper == "OR":
-                # Si implementas or_posting
-                # next_p = self.get_posting(tokens[i+1])
-                # res = self.or_posting(res, next_p)
-                i += 2
-            elif token_upper == "NOT":
-                # Esto es un AND NOT
-                next_p = self.get_posting(tokens[i+1])
-                res = self.minus_posting(res, next_p)
+ 
+            if token_upper == "NOT":
+                # AND NOT: intersección de res con el complemento del siguiente término
+                # FIX: usamos and_posting(res, reverse_posting(next_p)) en lugar de minus_posting
+                # para obtener el complemento global correcto (artículos que NO contienen el término)
+                next_posting = self._get_posting_for_token(tokens[i + 1])
+                res = self.and_posting(res, self.reverse_posting(next_posting))
                 i += 2
             else:
-                # AND implícito (caso: ronald melzer)
-                next_p = self.get_posting(tokens[i])
-                res = self.and_posting(res, next_p)
+                # AND implícito: intersección de res con la posting del término actual
+                next_posting = self._get_posting_for_token(tokens[i])
+                res = self.and_posting(res, next_posting)
                 i += 1
-        
-        # Limpieza final: para que SAR_Searcher no reciba [[id, [pos]], ...]
-        # convertimos todo a lista de IDs puros
+ 
+        # Normalizar a lista de IDs puros (sin posiciones)
         final_res = [x[0] if isinstance(x, list) else x for x in res]
+ 
+        # --- RERANKING SEMÁNTICO (opción -R) ---
+        if self.semantic_ranking and self.semantic:
+            final_res = self.semantic_reranking(query, final_res)
+ 
         return final_res, None
-
-        ########################################
-        ## COMPLETAR PARA TODAS LAS VERSIONES ##
-        ########################################
+ 
+ 
+    def _parse_query_tokens(self, query:str) -> List[str]:
+        """
+        Método auxiliar: divide la query en tokens respetando las frases entre comillas dobles.
+ 
+        Ejemplo:
+            'python "fin de semana" NOT curso'
+            -> ['python', '"fin de semana"', 'NOT', 'curso']
+ 
+        Las frases entre comillas se devuelven con las comillas incluidas para que
+        _get_posting_for_token pueda identificarlas.
+        """
+        tokens = []
+        # Expresión regular: captura texto entre comillas O palabras sueltas
+        pattern = re.compile(r'"[^"]*"|\S+')
+        for match in pattern.finditer(query):
+            tokens.append(match.group())
+        return tokens
+    
+    def _get_posting_for_token(self, token:str) -> list:
+        """
+        Método auxiliar: devuelve la posting list para un token, que puede ser:
+          - Una frase entre comillas (búsqueda posicional): llama a get_positionals
+          - Un término simple: llama a get_posting
+        """
+        if token.startswith('"') and token.endswith('"'):
+            # Búsqueda posicional: extraemos el contenido entre comillas
+            frase = token[1:-1]
+            return self.get_positionals(frase)
+        else:
+            return self.get_posting(token)
 
 
 
@@ -598,38 +652,38 @@ class SAR_Indexer:
 
         """
 
-        # 1. Tokenizamos la frase (ej: "real madrid")
+        # 1. Tokenizamos la frase
         tokens = self.tokenize(terms)
         if not tokens:
             return []
-
+ 
         # 2. Obtenemos las postings completas (con posiciones)
         postings_con_pos = [self.index.get(t, []) for t in tokens]
-        
-        # Si alguna palabra no existe, la frase no existe
+ 
+        # Si alguna palabra no existe en el índice, la frase no puede aparecer
         if any(not p for p in postings_con_pos):
             return []
-
-        # 3. Intersección inicial de IDs (Filtro rápido usando and_posting)
-        # Extraemos solo los IDs para ver en qué artículos coinciden todas las palabras
-        common_artids = [x[0] for x in postings_con_pos[0]]
+ 
+        # 3. Intersección de IDs: artículos que contienen todas las palabras
+        # Extraemos sólo los IDs para el and_posting
+        ids_0 = [x[0] for x in postings_con_pos[0]]
+        common_artids = ids_0
         for p in postings_con_pos[1:]:
-            ids_actuales = [x[0] for x in p]
-            common_artids = self.and_posting(common_artids, ids_actuales)
-        
+            ids_p = [x[0] for x in p]
+            common_artids = self.and_posting(common_artids, ids_p)
+ 
         res = []
-        # 4. Comprobación de proximidad para cada artículo común
+        # 4. Comprobación de consecutividad para cada artículo común
         for aid in common_artids:
-            # Extraemos las listas de posiciones de cada palabra para este aid
+            # Extraemos las listas de posiciones de cada palabra para este artículo
             pos_por_palabra = []
             for p_list in postings_con_pos:
                 for entry in p_list:
                     if entry[0] == aid:
-                        pos_por_palabra.append(entry[1])
+                        pos_por_palabra.append(set(entry[1]))  # set para O(1) en búsqueda
                         break
-            
-            # 5. Algoritmo de consecutividad
-            # Miramos si para alguna posición de la primera palabra, las siguientes están a +1, +2...
+ 
+            # Comprobamos si existe alguna posición inicial desde la que la secuencia es consecutiva
             for start_pos in pos_por_palabra[0]:
                 es_frase = True
                 for offset in range(1, len(pos_por_palabra)):
@@ -638,8 +692,8 @@ class SAR_Indexer:
                         break
                 if es_frase:
                     res.append(aid)
-                    break # Basta con encontrar la frase una vez en el artículo
-        
+                    break  # Basta con encontrar la frase una vez en el artículo
+ 
         return res
 
 
@@ -826,13 +880,12 @@ class SAR_Indexer:
         # 3. Mostrar la información de cada artículo
         for i, art_id in enumerate(res_to_show, 1):
             info = self.articles[art_id]
-            # Suponiendo que guardaste 'title' y 'url' en self.articles durante la indexación
-            print(f"[{i}] ({art_id}) {info.get('title', 'No Title')}")
-        
-        print("-" * 20)
-        ################
-        ## COMPLETA  ##
-        ################
+            title = info.get('title', 'Sin título')
+            url = info.get('url', 'Sin URL')
+            # Formato: [orden] (artid) título \t url
+            print(f"[{i}]\t({art_id})\t{title}\t{url}")
+ 
+        print("-" * 40)
 
 
 

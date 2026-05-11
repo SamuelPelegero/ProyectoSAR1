@@ -1,7 +1,15 @@
-ronald	2
-montevideo	1
-ronald melzer	1
-ronald NOT ronny	1
-ronny NOT melzer	1
-montevideo ronald	1
-montevideo NOT ronald	0
+uruguay	3
+españa	20
+barcelona	5
+cine	6
+futbol	2
+fútbol	8
+tom holland	1
+olaf noruega	1
+fernando magallanes	1
+fútbol barcelona	3
+futbol barcelona	1
+cine NOT uruguay	5
+NOT uruguay	47
+barcelona fútbol NOT españa	0
+barcelona futbol NOT españa	0

@@ -82,7 +82,7 @@ class SAR_Indexer:
         self.artid_to_emb = {}
         self.kdtree = None
         self.semantic_threshold = None
-        self.semantic_ranking = None # ¿¿ ranking de consultas binarias ??
+        self.semantic_ranking = None
         self.model = None
         self.MAX_EMBEDDINGS = 200 # número máximo de embedding que se extraen del kdtree en una consulta
         
@@ -206,9 +206,9 @@ class SAR_Indexer:
         
         """
 
-        #1 - completar
+        
         frases = nltk.sent_tokenize(txt)
-        #2 - completar
+  
         inicio = len(self.chuncks)
         for f in frases:
             self.chuncks.append(f)
@@ -252,13 +252,13 @@ class SAR_Indexer:
 
         while True:
             top_k = min(top_k, total_chunks)
-            # CAMBIO: Recibimos una sola variable 'res' (lista de tuplas)
-            res = self.model.query(query, top_k)
+            res = self.model.query(query, top_k) #Le pide al KDTree las top_k frases más cercanas a la consulta.
+                                                 #Devuelve una lista de tuplas (distancia, índice_de_chunk) ordenadas de menor a mayor distancia.
             
             if not res: break
 
-            # Accedemos a la última tupla para la condición de salida
-            last_dist = res[-1][0] # res[-1] es (distancia, indice)
+            # Accedemos a la última tupla para saber si hay que ampliar la búsqueda. 
+            last_dist = res[-1][0]
 
             if (self.semantic_threshold is not None
                     and last_dist <= self.semantic_threshold
@@ -268,7 +268,7 @@ class SAR_Indexer:
             break
 
         results = []
-        # CAMBIO: Iteramos sobre las tuplas (distancia, indice)
+        # Iteramos sobre las tuplas (distancia, indice)
         for d, idc in res:
             if self.semantic_threshold is None or d <= self.semantic_threshold:
                 artid = self.chunck_index[idc] 
@@ -298,12 +298,12 @@ class SAR_Indexer:
         
         while True:
             top_k = min(top_k, total_chunks)
-            # CAMBIO: Aquí estaba el ValueError. Recibe solo 'res'.
+           
             res = self.model.query(query, top_k)
             
             # Extraemos los art_id únicos que están en la lista original
             reranked = []
-            for _, idc in res: # Solo nos interesa el índice (idc)
+            for _, idc in res: # Solo nos interesa el índice (idc) res -> (distancia, idc)
                 aid = self.chunck_index[idc]
                 if aid in art_set and aid not in reranked:
                     reranked.append(aid)
@@ -508,9 +508,6 @@ class SAR_Indexer:
             print(f"  Chunks semánticos          : {len(self.chuncks)}")
         print("=" * 40)
        
-        ########################################
-        ## COMPLETAR PARA TODAS LAS VERSIONES ##
-        ########################################
 
 
 
@@ -529,7 +526,7 @@ class SAR_Indexer:
 
     def solve_query(self, query: str, prev: dict = {}):
         if not query:
-            return [], None
+            return [], None 
 
         if self.semantic_threshold is not None and not self.semantic_ranking:
             results = self.solve_semantic_query(query)
@@ -562,14 +559,10 @@ class SAR_Indexer:
             token_upper = tokens[i].upper()
  
             if token_upper == "NOT":
-                # AND NOT: intersección de res con el complemento del siguiente término
-                # FIX: usamos and_posting(res, reverse_posting(next_p)) en lugar de minus_posting
-                # para obtener el complemento global correcto (artículos que NO contienen el término)
                 next_posting = self._get_posting_for_token(tokens[i + 1])
                 res = self.and_posting(res, self.reverse_posting(next_posting))
                 i += 2
             else:
-                # AND implícito: intersección de res con la posting del término actual
                 next_posting = self._get_posting_for_token(tokens[i])
                 res = self.and_posting(res, next_posting)
                 i += 1
@@ -634,9 +627,7 @@ class SAR_Indexer:
         """
         term = term.lower()
         return self.index.get(term, [])
-        ########################################
-        ## COMPLETAR PARA TODAS LAS VERSIONES ##
-        ########################################
+
 
 
 
@@ -664,8 +655,7 @@ class SAR_Indexer:
         if any(not p for p in postings_con_pos):
             return []
  
-        # 3. Intersección de IDs: artículos que contienen todas las palabras
-        # Extraemos sólo los IDs para el and_posting
+        # 3. Obtenemos la lista de artículos comunes a todas las palabras (AND de las postings sin posiciones)
         ids_0 = [x[0] for x in postings_con_pos[0]]
         common_artids = ids_0
         for p in postings_con_pos[1:]:
@@ -674,25 +664,24 @@ class SAR_Indexer:
  
         res = []
         # 4. Comprobación de consecutividad para cada artículo común
-        for aid in common_artids:
-            # Extraemos las listas de posiciones de cada palabra para este artículo
+        for aid in common_artids: #Recorre los artículos que contienen todas las palabras
             pos_por_palabra = []
-            for p_list in postings_con_pos:
-                for entry in p_list:
-                    if entry[0] == aid:
-                        pos_por_palabra.append(set(entry[1]))  # set para O(1) en búsqueda
+            for p_list in postings_con_pos: #Recorre la pl de cada palabra en orden de la frase 'Fin de semana' -> [pl('Fin'), pl('de'), pl('semana')]
+                for entry in p_list: #Recorre la pl de la palabra actual [articulo1, [posiciones_a1], articulo2, [posiciones_a2], ...]
+                    if entry[0] == aid: #Si el articulo coincide con el actual
+                        pos_por_palabra.append(set(entry[1]))  # nos guardamos las posiciones de esa palabra en el artículo
                         break
  
-            # Comprobamos si existe alguna posición inicial desde la que la secuencia es consecutiva
-            for start_pos in pos_por_palabra[0]:
+           #pos_por_palabra -> [[posiciones de la palabra 1], [posiciones de la palabra 2], ...] ejemplo: [[1, 5, 10], [2, 6, 11], [3, 7, 12]] para la frase "a b c" en un artículo dado
+            for start_pos in pos_por_palabra[0]: #Recorre las posiciones de la primera palabra
                 es_frase = True
                 for offset in range(1, len(pos_por_palabra)):
-                    if (start_pos + offset) not in pos_por_palabra[offset]:
+                    if (start_pos + offset) not in pos_por_palabra[offset]: #Si no encontramos la siguiente palabra en la posición consecutiva, no es la frase
                         es_frase = False
                         break
-                if es_frase:
+                if es_frase: # Basta con encontrar la frase una vez en el artículo para incluirlo en el resultado
                     res.append(aid)
-                    break  # Basta con encontrar la frase una vez en el artículo
+                    break  
  
         return res
 
@@ -718,8 +707,7 @@ class SAR_Indexer:
         i, j = 0, 0
         
         while i < len(notTotal):
-            # Extraemos el ID de p si es posicional
-            val_p = -1 # Valor por defecto si j está fuera de rango
+            val_p = -1 
             if j < len(p):
                 val_p = p[j][0] if self.positional else p[j]
 
@@ -728,15 +716,10 @@ class SAR_Indexer:
                 i += 1
                 j += 1
             else:
-                # Si no está en p, lo añadimos al resultado
-                # Nota: El resultado de un NOT siempre es una lista de IDs (sin posiciones)
-                # porque los artículos que NO tenían la palabra no tienen posiciones que guardar
                 res.append(notTotal[i]) 
                 i += 1
         return res
-        ########################################
-        ## COMPLETAR PARA TODAS LAS VERSIONES ##
-        ########################################
+
 
 
 
@@ -769,9 +752,7 @@ class SAR_Indexer:
             else:
                 j += 1
         return res
-        ########################################
-        ## COMPLETAR PARA TODAS LAS VERSIONES ##
-        ########################################
+
 
 
 
@@ -818,9 +799,7 @@ class SAR_Indexer:
             
         return res
         
-        ########################################################
-        ## COMPLETAR PARA TODAS LAS VERSIONES SI ES NECESARIO ##
-        ########################################################
+
 
 
 
